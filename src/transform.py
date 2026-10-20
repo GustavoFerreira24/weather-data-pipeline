@@ -1,4 +1,3 @@
-
 import json
 from pathlib import Path
 
@@ -41,6 +40,61 @@ for file_path in sorted(raw_dir.glob("*.json")):
 # Combine all cities
 df_final = pd.concat(dataframes, ignore_index=True)
 
-print("\nFinal DataFrame:")
-print(df_final.head().to_string(index=False))
-print("Shape:", df_final.shape)
+# Data Quality
+
+required_columns = {
+    "city", "timestamp", "temperature",
+    "humidity", "precipitation", "wind_speed"
+}
+
+# Validate schema
+if set(df_final.columns) != required_columns:
+    raise ValueError("Unexpected DataFrame schema")
+
+# Validate numeric data types
+numeric_columns = [
+    "temperature", "humidity",
+    "precipitation", "wind_speed"
+]
+
+for column in numeric_columns:
+    df_final[column] = pd.to_numeric(
+        df_final[column], errors="raise"
+    )
+
+# Validate required fields
+if df_final[["city", "timestamp"]].isna().any().any():
+    raise ValueError("Missing city or timestamp")
+
+# Validate measurement ranges
+invalid_values = (
+    (df_final["humidity"].notna() &
+     ~df_final["humidity"].between(0, 100))
+    | (df_final["precipitation"] < 0)
+    | (df_final["wind_speed"] < 0)
+)
+
+if invalid_values.any():
+    raise ValueError("Invalid weather measurements")
+
+# Remove identical rows
+original_count = len(df_final)
+df_final = df_final.drop_duplicates()
+
+print(f"Exact duplicates removed: {original_count - len(df_final)}")
+
+# Detect conflicting observations
+conflicts = df_final.duplicated(
+    subset=["city", "timestamp"],
+    keep=False
+)
+
+if conflicts.any():
+    raise ValueError("Conflicting observations for the same city and timestamp")
+
+# Report missing values
+print("\nMissing values:")
+print(df_final.isna().sum())
+
+print("\nFinal shape:", df_final.shape)
+print("Data Quality checks passed!")
